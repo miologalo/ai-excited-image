@@ -1,8 +1,8 @@
 # Make the AI judge excited — ai-excited-01
 
-[![make.fun](https://make.fun/badge.svg)](https://make.fun)
-[![competition](https://make.fun/c/ai-excited-01/badge.svg)](https://make.fun/bounty/ai-excited-01)
-[![entry](https://make.fun/e/ai-excited-01/badge.svg)](https://make.fun/bounty/ai-excited-01)
+[![make.fun · ai-excited-01](https://make.fun/badge/ai-excited-01.svg)](https://make.fun/bounty/ai-excited-01?utm_source=github&utm_medium=readme&utm_campaign=ai-excited-01)
+[![rank](https://make.fun/badge/ai-excited-01/miologalo/ai-excited-image/rank.svg)](https://make.fun/bounty/ai-excited-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=ai-excited-01)
+[![reward](https://make.fun/badge/ai-excited-01/miologalo/ai-excited-image/reward.svg)](https://make.fun/bounty/ai-excited-01?utm_source=github&utm_medium=readme&utm_campaign=ai-excited-01)
 
 A rocket launching straight up through the curl of a giant ocean wave at
 golden hour — seawater exploding outward in a crown of spray lit gold by the

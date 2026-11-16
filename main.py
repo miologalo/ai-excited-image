@@ -1,85 +1,80 @@
 #!/usr/bin/env python3
-"""ai-excited-01 entry (Python 3.13, standard library only).
+"""ai-excited-01 entry program (Python 3.13, standard library only).
 
-Writes one image to /output/entry.png: a white rocket launching straight
-up through the curl of a giant ocean wave at golden hour. The program
-copies the bundled image.jpg to the output directory, but only after the
-file clears every part of the competition gate:
+It writes one image to /output/entry.png: a white rocket launching
+straight up through the curl of a giant ocean wave at golden hour.
 
-  * at most 1 MiB (1,048,576 bytes),
-  * at most 1024 by 1024 pixels,
-  * a whole JPEG (starts with SOI, ends with EOI).
+The bundled image.jpg is copied to the output directory unchanged, but
+only after it clears the competition gate, checked from the raw bytes:
 
-Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
+  * no more than 1 MiB (1,048,576 bytes),
+  * no more than 1024 by 1024 pixels,
+  * a whole JPEG (SOI at the start, EOI at the end).
+
+Local check:
     mkdir -p out && MAKEFUN_OUTPUT_DIR=out python3 main.py
 
-The program is deterministic: two runs write byte-identical output.
+The copy is byte-for-byte, so two runs write identical output.
 """
 
 import os
-import shutil
-import struct
 import sys
 
-MAX_BYTES = 1_048_576  # 1 MiB gate
-MAX_SIDE = 1024        # 1024x1024 gate
+MAX_BYTES = 1_048_576
+MAX_SIDE = 1024
 SOURCE_NAME = "image.jpg"
 OUTPUT_NAME = "entry.png"
+SOI = b"\xff\xd8"
+EOI = b"\xff\xd9"
 
 
-def parse_jpeg_dimensions(path: str) -> tuple[int, int]:
-    """Return (width, height) of a JPEG by scanning for its SOF segment.
+def jpeg_dimensions(data: bytes) -> tuple[int, int]:
+    """Return (width, height) by scanning the JPEG marker stream in memory.
 
-    Standard library only. Walks the marker stream from the SOI marker,
-    skipping fill bytes (0xFF) and standalone markers (RSTn, SOI, EOI),
-    until it reaches SOF0/SOF1/SOF2, whose header carries the dimensions.
+    Walks the segments starting after the SOI marker. Fill bytes (0xFF)
+    are skipped; standalone markers (RSTn, SOI, EOI) carry no length, so
+    they are passed over; every other segment is skipped by its length
+    until a SOF0/SOF1/SOF2 header is found, which holds the dimensions.
     """
-    with open(path, "rb") as handle:
-        if handle.read(2) != b"\xff\xd8":
-            raise ValueError("not a JPEG: missing SOI marker")
-        while True:
-            # Skip any 0xFF fill bytes, then read the marker code.
-            byte = handle.read(1)
-            while byte == b"\xff":
-                byte = handle.read(1)
-            if len(byte) < 1:
-                raise ValueError("no SOF segment found before end of file")
-            code = byte[0]
-            if code in (0xC0, 0xC1, 0xC2):  # SOF0, SOF1, SOF2
-                handle.read(2)  # segment length
-                handle.read(1)  # sample precision
-                height = struct.unpack(">H", handle.read(2))[0]
-                width = struct.unpack(">H", handle.read(2))[0]
-                return width, height
-            if code in (0xD8, 0xD9) or 0xD0 <= code <= 0xD7:
-                continue  # standalone marker: no length field follows
-            length = struct.unpack(">H", handle.read(2))[0]
-            if length < 2:
-                raise ValueError("bad JPEG segment length")
-            handle.seek(length - 2, 1)
+    if data[:2] != SOI:
+        raise ValueError("not a JPEG: missing SOI marker")
+    pos = 2
+    while pos < len(data):
+        if data[pos] != 0xFF:
+            raise ValueError("bad JPEG marker at offset %d" % pos)
+        while pos < len(data) and data[pos] == 0xFF:
+            pos += 1
+        if pos >= len(data):
+            break
+        code = data[pos]
+        pos += 1
+        if code in (0xC0, 0xC1, 0xC2):
+            # SOF segment: length (2), precision (1), height (2), width (2).
+            if pos + 7 > len(data):
+                raise ValueError("truncated SOF segment")
+            height = (data[pos + 3] << 8) | data[pos + 4]
+            width = (data[pos + 5] << 8) | data[pos + 6]
+            return width, height
+        if code in (0xD8, 0xD9) or 0xD0 <= code <= 0xD7:
+            continue
+        if pos + 2 > len(data):
+            raise ValueError("truncated segment length")
+        length = (data[pos] << 8) | data[pos + 1]
+        if length < 2:
+            raise ValueError("bad JPEG segment length")
+        pos += length
+    raise ValueError("no SOF segment found")
 
 
-def is_whole_jpeg(path: str) -> bool:
-    """True when the file ends with the JPEG EOI marker (0xFFD9)."""
-    with open(path, "rb") as handle:
-        handle.seek(-2, 2)
-        return handle.read(2) == b"\xff\xd9"
-
-
-def validate_entry(path: str) -> str | None:
-    """Check the bundled image against the gate. None means it passes.
-
-    Returns a human-readable reason when a check fails, so main() can
-    report exactly which part of the gate rejected the entry.
-    """
-    size = os.path.getsize(path)
-    if size > MAX_BYTES:
-        return f"{SOURCE_NAME} is {size} bytes, over the 1 MiB gate"
-    if not is_whole_jpeg(path):
-        return f"{SOURCE_NAME} is truncated: no EOI marker at the end"
-    width, height = parse_jpeg_dimensions(path)
+def check_gate(data: bytes) -> str | None:
+    """Return None when the image clears the gate, else a reason string."""
+    if len(data) > MAX_BYTES:
+        return "%s is %d bytes, over the 1 MiB gate" % (SOURCE_NAME, len(data))
+    if data[:2] != SOI or data[-2:] != EOI:
+        return "%s is not a whole JPEG (missing SOI or EOI)" % SOURCE_NAME
+    width, height = jpeg_dimensions(data)
     if width > MAX_SIDE or height > MAX_SIDE:
-        return f"image is {width}x{height}, over the 1024x1024 gate"
+        return "image is %dx%d, over the 1024x1024 gate" % (width, height)
     return None
 
 
@@ -89,24 +84,29 @@ def main() -> int:
     out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
     dst = os.path.join(out_dir, OUTPUT_NAME)
 
-    problem = validate_entry(src)
+    with open(src, "rb") as handle:
+        data = handle.read()
+
+    problem = check_gate(data)
     if problem is not None:
         print(problem, file=sys.stderr)
         return 1
 
-    size = os.path.getsize(src)
     os.makedirs(out_dir, exist_ok=True)
-    shutil.copyfile(src, dst)
+    with open(dst, "wb") as handle:
+        handle.write(data)
 
-    written = os.path.getsize(dst)
-    if written != size:
-        print("output size mismatch after copy", file=sys.stderr)
+    with open(dst, "rb") as handle:
+        written = handle.read()
+    if written != data:
+        print("output differs from source after write", file=sys.stderr)
         return 1
-    if not is_whole_jpeg(dst):
-        print("output is truncated: no EOI marker at the end",
+    problem = check_gate(written)
+    if problem is not None:
+        print("output fails the gate after write: " + problem,
               file=sys.stderr)
         return 1
-    print(f"wrote {dst} ({written} bytes)")
+    print("wrote %s (%d bytes)" % (dst, len(written)))
     return 0
 
 
